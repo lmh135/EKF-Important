@@ -1,0 +1,197 @@
+clear;close all;clc;
+
+%% 读入数据
+data = load('log3.txt');
+sz = size(data);
+num = sz(1,1);
+T = 1/750; %采样周期
+p = data(:,1);
+q = data(:,2);
+r = data(:,3);
+ax = data(:,4);
+ay = data(:,5);
+az = data(:,6);
+mx = data(:,7);
+my = data(:,8);
+mz = data(:,9);
+roll_imu = data(:,10);
+pitch_imu = data(:,11);
+yaw_imu = data(:,12);
+ned_x = data(:,13);
+ned_y = data(:,14);
+ned_z = data(:,15);
+% AXAVE=mean(ax);
+% AYAVE=mean(ay);
+% AZAVE=mean(az);
+
+% -0.273183556384974, -0.033997717941883, -9.802370183951066
+% -0.362742451838890, -0.105426374781087, -9.797878669001795
+% -0.334708290104068, -0.088344741450520, -9.798005352717660
+% roll_imu = roll_imu./180.*3.1415926;
+% pitch_imu = pitch_imu./180.*3.1415926;
+% yaw_imu = yaw_imu./180.*3.1415926;
+
+%% 去除跳变点
+for i=2:num
+    if abs(p(i)-p(i-1))>3
+        p(i) = p(i-1);
+    end
+    if abs(q(i)-q(i-1))>5
+        q(i) = q(i-1);
+    end
+    if abs(r(i)-r(i-1))>5
+        r(i) = r(i-1);
+    end
+    if abs(ax(i)-ax(i-1))>1
+        ax(i) = ax(i-1);
+    end
+    if abs(ay(i)-ay(i-1))>1
+        ay(i) = ay(i-1);
+    end
+    if abs(az(i)-az(i-1))>2
+        az(i) = az(i-1);
+    end
+    if abs(mx(i)-mx(i-1))>50
+        mx(i) = mx(i-1);
+    end
+    if abs(my(i)-my(i-1))>50
+        my(i) = my(i-1);
+    end
+    if abs(mz(i)-mz(i-1))>50
+        mz(i) = mz(i-1);
+    end
+    if abs(roll_imu(i)-roll_imu(i-1))>5
+        roll_imu(i) = roll_imu(i-1);
+    end
+    if abs(pitch_imu(i)-pitch_imu(i-1))>5
+        pitch_imu(i) = pitch_imu(i-1);
+    end
+    if abs(yaw_imu(i)-yaw_imu(i-1))>5
+        yaw_imu(i) = yaw_imu(i-1);
+    end
+end
+
+%% 初始化一些数组，数据处理用
+p_filter=zeros(num,1);
+q_filter=zeros(num,1);
+r_filter=zeros(num,1);
+ax_filter=zeros(num,1);
+ay_filter=zeros(num,1);
+az_filter=zeros(num,1);
+mx_filter=zeros(num,1);
+my_filter=zeros(num,1);
+mz_filter=zeros(num,1);
+roll_hu=zeros(num,1);
+pitch_hu=zeros(num,1);
+yaw_hu=zeros(num,1);
+roll_hu_filter=zeros(num,1);
+pitch_hu_filter=zeros(num,1);
+yaw_hu_filter=zeros(num,1);
+
+%% 低通滤波
+p_filter(1)=p(1);
+q_filter(1)=q(1);
+r_filter(1)=r(1);
+ax_filter(1)=ax(1);
+ay_filter(1)=ay(1);
+az_filter(1)=az(1);
+mx_filter(1)=mx(1);
+my_filter(1)=my(1);
+mz_filter(1)=mz(1);
+for k=2:num
+    p_filter(k)=p_filter(k-1)+0.1*(p(k)-p_filter(k-1));
+    q_filter(k)=q_filter(k-1)+0.1*(q(k)-q_filter(k-1));
+    r_filter(k)=r_filter(k-1)+0.1*(r(k)-r_filter(k-1));
+    ax_filter(k)=ax_filter(k-1)+0.1*(ax(k)-ax_filter(k-1));
+    ay_filter(k)=ay_filter(k-1)+0.1*(ay(k)-ay_filter(k-1));
+    az_filter(k)=az_filter(k-1)+0.1*(az(k)-az_filter(k-1));
+    mx_filter(k)=mx_filter(k-1)+0.05*(mx(k)-mx_filter(k-1));
+    my_filter(k)=my_filter(k-1)+0.05*(my(k)-my_filter(k-1));
+    mz_filter(k)=mz_filter(k-1)+0.05*(mz(k)-mz_filter(k-1));
+end
+% figure;plot(az,'-r');hold on;plot(az_filter,'-b');
+
+AXAVE=mean(ax_filter(1:50));
+AYAVE=mean(ay_filter(1:50));
+AZAVE=mean(az_filter(1:50));
+
+for k=1:num
+    ax_filter(k)=ax_filter(k)-AXAVE;
+    ay_filter(k)=ay_filter(k)-AYAVE;
+    az_filter(k)=az_filter(k)-AZAVE;
+end
+%% 四元数归一化 
+q4_imu=eu2q4(roll_imu,pitch_imu,yaw_imu);
+q0_imu=q4_imu(:,1);
+q1_imu=q4_imu(:,2);
+q2_imu=q4_imu(:,3);
+q3_imu=q4_imu(:,4);
+q_1=sqrt(q0_imu.^2+q1_imu.^2+q2_imu.^2+q3_imu.^2);
+q0_imu=q0_imu./q_1;
+q1_imu=q1_imu./q_1;
+q2_imu=q2_imu./q_1;
+q3_imu=q3_imu./q_1;
+g_filter=sqrt(ax_filter.^2+ay_filter.^2+az_filter.^2);
+neduvw = zeros(3,num);
+nedxyz = zeros(3,num);
+
+for i=2:num
+    nCb = q4_2_nCb(q0_imu(i-1),q1_imu(i-1),q2_imu(i-1),q3_imu(i-1));
+%     nedxyz(:,i)= nedxyz(:,i-1)+T*[(vx(i)+vx(i-1))/2; (vy(i)-vy(i-1))/2; (vz(i)-vz(i-1))/2];
+    Ax(i)=nCb(1,1)*ax_filter(i)+nCb(1,2)*ay_filter(i)+nCb(1,3)*az_filter(i);
+    Ay(i)=nCb(2,1)*ax_filter(i)+nCb(2,2)*ay_filter(i)+nCb(2,3)*az_filter(i);
+    Az(i)=nCb(3,1)*ax_filter(i)+nCb(3,2)*ay_filter(i)+nCb(3,3)*az_filter(i);
+    neduvw(:,i)=neduvw(:,i-1)+T*[(Ax(i)+Ax(i-1))/2;(Ay(i)+Ay(i-1))/2;(Az(i)+Az(i-1))/2];
+
+%     neduvw(:,k)=neduvw(:,k-1)+T*fxv(neduvw(:,k-1),ax_filter(k-1),ay_filter(k-1),az_filter(k-1),p_filter(k-1),q_filter(k-1),r_filter(k-1),q0_imu(k-1),q1_imu(k-1),q2_imu(k-1),q3_imu(k-1),g_filter(k-1));
+
+    
+    nedxyz(:,i)=nedxyz(:,i-1)+T*[(neduvw(1,i)+neduvw(1,i-1))/2;(neduvw(2,i)+neduvw(2,i-1))/2;(neduvw(3,i)+neduvw(3,i-1))/2];
+end
+
+figure;plot(ned_x(1,:)','-g');hold on;plot(nedxyz(1,:)','-r');
+
+
+% 
+% vx = zeros(num,1);
+% vy = zeros(num,1);
+% vz = zeros(num,1);
+% for i=1:num
+%     nCb = q4_2_nCb(q0_imu(i),q1_imu(i),q2_imu(i),q3_imu(i));
+%     V = nCb*[ned_u(i); ned_v(i); ned_w(i)];
+%     vx(i) = V(1);
+%     vy(i) = V(2);
+%     vz(i) = V(3);
+% end
+% % figure;plot(ned_u,'-r');hold on;plot(vx,'-b');
+% 
+% % nedxyz = zeros(3,num);
+% % nedxyz(1,1)=ned_x(2,1);
+% % nedxyz(2,1)=ned_y(2,1);
+% % nedxyz(3,1)=ned_z(2,1);
+% neduvw = zeros(3,num);
+% neduvw(1,1)=ned_u(2,1);
+% neduvw(2,1)=ned_v(2,1);
+% neduvw(3,1)=ned_w(2,1);
+% % Ax=zeros(num,1);
+% % Ay=zeros(num,1);
+% % Az=zeros(num,1);
+% 
+% 
+% for i=2:num
+%     nCb = q4_2_nCb(q0_imu(i-1),q1_imu(i-1),q2_imu(i-1),q3_imu(i-1));
+% %     nedxyz(:,i)= nedxyz(:,i-1)+T*[(vx(i)+vx(i-1))/2; (vy(i)-vy(i-1))/2; (vz(i)-vz(i-1))/2];
+%     Ax(i)=nCb(1,1)*ax_filter(i)+nCb(1,2)*ay_filter(i)+nCb(1,3)*az_filter(i);
+%     Ay(i)=nCb(2,1)*ax_filter(i)+nCb(2,2)*ay_filter(i)+nCb(2,3)*az_filter(i);
+%     Az(i)=nCb(3,1)*ax_filter(i)+nCb(3,2)*ay_filter(i)+nCb(3,3)*az_filter(i);
+%     
+%     
+%     neduvw(:,i)=neduvw(:,i-1)+T*[(Ax(i)+Ax(i-1))/2;(Ay(i)+Ay(i-1))/2;(Az(i)+Az(i-1))/2];
+% 
+% end
+% % figure;plot(ned_x,'-r');hold on;plot(nedxyz(1,:)','-b');
+% % figure;plot(ned_y,'-r');hold on;plot(nedxyz(2,:)','-b');
+% % figure;plot(ned_z,'-r');hold on;plot(nedxyz(3,:)','-b');
+% figure;plot(ned_u,'-r');hold on;plot(neduvw(1,:)','-b');
+% figure;plot(ned_v,'-r');hold on;plot(neduvw(2,:)','-b');
+% figure;plot(ned_w,'-r');hold on;plot(neduvw(3,:)','-b');

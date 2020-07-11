@@ -1,0 +1,11 @@
+function f=eu2q4andnormal(roll,pitch,yaw)
+q0=cos(roll./2).*cos(pitch./2).*cos(yaw./2)+sin(roll./2).*sin(pitch./2).*sin(yaw./2);
+q1=-1.*cos(roll./2).*sin(pitch./2).*sin(yaw./2)+sin(roll./2).*cos(pitch./2).*cos(yaw./2);
+q2=cos(roll./2).*sin(pitch./2).*cos(yaw./2)+sin(roll./2).*cos(pitch./2).*sin(yaw./2);
+q3=cos(roll./2).*cos(pitch./2).*sin(yaw./2)-sin(roll./2).*sin(pitch./2).*cos(yaw./2);
+q=sqrt(q0.^2+q1.^2+q2.^2+q3.^2);
+q0=q0./q;
+q1=q1./q;
+q2=q2./q;
+q3=q3./q;
+f=[q0,q1,q2,q3];
